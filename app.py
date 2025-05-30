@@ -55,7 +55,6 @@ def replace_placeholders_in_doc(template, mapping, row):
                     placeholder_regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
                     new_text = placeholder_regex.sub(str(row[col]), full_text)
                     if new_text != full_text:
-                        # effacer les runs et ajouter un nouveau run
                         for run in p.runs:
                             p._p.remove(run._r)
                         p.add_run(new_text)
@@ -79,7 +78,6 @@ def replace_placeholders_in_doc(template, mapping, row):
                 for cell in row_cells.cells:
                     replace_in_paragraphs(cell.paragraphs)
 
-
 def main():
     st.title("Publipostage Streamlit")
     st.markdown("**Étape 1 :** Sélectionnez votre modèle Word et votre fichier Excel.")
@@ -87,27 +85,33 @@ def main():
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
 
-    # Affichage des balises
-    if word_file:
-        tags = extract_tags_from_docx(word_file)
-        st.markdown("### Balises détectées dans le modèle Word")
-        if tags:
-            for tag in sorted(tags):
-                st.write(f"- **{{{{{tag}}}}}**")
-        else:
-            st.info("Aucune balise {{…}} trouvée dans le document.")
+    mapping = {}
+    tags = set()
+    df = None
 
-    # Affichage des colonnes Excel
-    if excel_file:
-        df = pd.read_excel(excel_file)
-        st.markdown("### Colonnes détectées dans le fichier Excel")
-        st.write(list(df.columns))
+    # Affichage conditionnel dans un expander
+    if word_file or excel_file:
+        with st.expander("📄 Afficher les détails du modèle (balises et colonnes détectées)"):
+            if word_file:
+                tags = extract_tags_from_docx(word_file)
+                st.markdown("### Balises détectées dans le modèle Word")
+                if tags:
+                    for tag in sorted(tags):
+                        st.write(f"- **{{{{{tag}}}}}**")
+                else:
+                    st.info("Aucune balise {{…}} trouvée dans le document.")
+
+            if excel_file:
+                df = pd.read_excel(excel_file)
+                st.markdown("### Colonnes détectées dans le fichier Excel")
+                st.write(list(df.columns))
 
     # Mappage balise → colonne
-    mapping = {}
     if word_file and excel_file:
-        df = pd.read_excel(excel_file)
-        tags = extract_tags_from_docx(word_file)
+        if df is None:
+            df = pd.read_excel(excel_file)
+        if not tags:
+            tags = extract_tags_from_docx(word_file)
         st.markdown("### Mappage balises → colonnes Excel")
         cols = ["(laisser inchangée)"] + list(df.columns)
         for tag in sorted(tags):
@@ -128,7 +132,6 @@ def main():
                 for i, row in df.iterrows():
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-                    # Nommer le fichier par une colonne clef si existante
                     key = mapping.get('Name')
                     fname = str(row[key]) if key and key in row.index else str(i)
                     output_io = io.BytesIO()
