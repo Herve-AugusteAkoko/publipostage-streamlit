@@ -33,7 +33,7 @@ def replace_placeholders_in_doc(template, mapping, row):
 
     def process_paragraph(paragraph):
         full_text = ''.join([clean_text(run.text) for run in paragraph.runs])
-        st.write("📄 Texte analysé :", full_text)  # affichage console
+        st.write("📄 Texte analysé :", full_text)
         replacements = {}
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
@@ -44,11 +44,17 @@ def replace_placeholders_in_doc(template, mapping, row):
                     replacements[placeholder] = value
 
         if replacements:
-            for run in paragraph.runs:
-                run.text = ''
+            new_text = full_text
             for placeholder, value in replacements.items():
-                full_text = full_text.replace(placeholder, value)
-            paragraph.add_run(full_text)
+                new_text = new_text.replace(placeholder, value)
+
+            # Supprimer tous les runs
+            for run in paragraph.runs:
+                p = run._element
+                p.getparent().remove(p)
+
+            # Ajouter le nouveau texte comme un seul run propre
+            paragraph.add_run(new_text)
 
     def process_container(container):
         for paragraph in container.paragraphs:
@@ -64,7 +70,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process_container(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.12.1")
+    st.title("Publipostage Streamlit – Version 3.12.2")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
