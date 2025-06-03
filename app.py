@@ -31,32 +31,48 @@ def replace_placeholders_in_doc(template, mapping, row):
     def clean(text):
         return text.replace('\xa0', ' ').replace('\u200b', '').strip()
 
-    def get_full_text_and_mapping(paragraph):
-        full_text = ''
-        run_map = []
-        for run in paragraph.runs:
-            run_text = clean(run.text)
-            run_map.append((len(full_text), len(full_text) + len(run_text), run))
-            full_text += run_text
-        return full_text, run_map
+    def find_placeholder_sequence(paragraph, placeholder):
+        runs = paragraph.runs
+        sequence = placeholder
+        positions = []
+        buffer = ''
+        start = 0
+        for i, run in enumerate(runs):
+            buffer += run.text
+            if sequence in buffer:
+                # Trouvé : déterminer les runs à remplacer
+                end = i
+                acc = ''
+                for j in range(i + 1):
+                    acc += runs[j].text
+                    if sequence in acc:
+                        return j - len(sequence) + 1, i
+        return None, None
 
     def replace_tags(paragraph):
-        full_text, run_map = get_full_text_and_mapping(paragraph)
-        replaced = False
-
+        full_text = ''.join([run.text for run in paragraph.runs])
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
                 placeholder = "{{" + tag + "}}"
+                value = str(row[col])
                 if placeholder in full_text:
-                    replaced = True
-                    value = str(row[col])
-                    full_text = full_text.replace(placeholder, value)
-
-        if replaced:
-            for run in paragraph.runs:
-                run.text = ''
-            paragraph.clear()
-            paragraph.add_run(full_text)
+                    start, end = find_placeholder_sequence(paragraph, placeholder)
+                    if start is not None:
+                        # Supprimer les runs concernés
+                        for i in range(start, end + 1):
+                            r = paragraph.runs[start]
+                            r.clear()
+                            r.text = ''
+                            paragraph._element.remove(r._element)
+                        # Recréer un run avec le style du premier
+                        new_run = paragraph.add_run(value)
+                        if paragraph.runs:
+                            reference_run = paragraph.runs[start] if start < len(paragraph.runs) else paragraph.runs[0]
+                            new_run.bold = reference_run.bold
+                            new_run.italic = reference_run.italic
+                            new_run.underline = reference_run.underline
+                            new_run.font.name = reference_run.font.name
+                            new_run.font.size = reference_run.font.size
 
     def process(container):
         for p in container.paragraphs:
@@ -72,7 +88,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13")
+    st.title("Publipostage Streamlit – Version 3.13.1")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
