@@ -59,7 +59,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process_container(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.1")
+    st.title("Publipostage Streamlit – Version 3.11")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
