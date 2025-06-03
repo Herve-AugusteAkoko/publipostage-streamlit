@@ -29,26 +29,26 @@ def extract_tags_from_docx(docx_file) -> set:
 
 def replace_placeholders_in_doc(template, mapping, row):
     def clean_text(text):
-        return text.replace('\xa0', ' ').replace('\u200b', '')
+        return text.replace('\xa0', ' ').replace('\u200b', '').strip()
 
     def process_paragraph(paragraph):
-        full_text = ''.join([run.text for run in paragraph.runs])
-        full_text_cleaned = clean_text(full_text)
-
+        full_text = ''.join([clean_text(run.text) for run in paragraph.runs])
+        st.write("📄 Texte analysé :", full_text)  # affichage console
         replacements = {}
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
                 placeholder = "{{" + tag + "}}"
-                if placeholder in full_text_cleaned:
+                if placeholder in full_text:
                     value = str(row[col])
+                    st.write(f"🔁 Remplacement prévu : {placeholder} → {value}")
                     replacements[placeholder] = value
 
         if replacements:
             for run in paragraph.runs:
                 run.text = ''
             for placeholder, value in replacements.items():
-                full_text_cleaned = full_text_cleaned.replace(placeholder, value)
-            paragraph.add_run(full_text_cleaned)
+                full_text = full_text.replace(placeholder, value)
+            paragraph.add_run(full_text)
 
     def process_container(container):
         for paragraph in container.paragraphs:
@@ -64,7 +64,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process_container(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.12")
+    st.title("Publipostage Streamlit – Version 3.12.1")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
