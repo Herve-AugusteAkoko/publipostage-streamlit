@@ -28,49 +28,51 @@ def extract_tags_from_docx(docx_file) -> set:
     return tags
 
 def replace_placeholders_in_doc(template, mapping, row):
-    def clean_text(text):
+    def clean(text):
         return text.replace('\xa0', ' ').replace('\u200b', '').strip()
 
-    def process_paragraph(paragraph):
-        full_text = ''.join([clean_text(run.text) for run in paragraph.runs])
-        st.write("📄 Texte analysé :", full_text)
-        replacements = {}
+    def get_full_text_and_mapping(paragraph):
+        full_text = ''
+        run_map = []
+        for run in paragraph.runs:
+            run_text = clean(run.text)
+            run_map.append((len(full_text), len(full_text) + len(run_text), run))
+            full_text += run_text
+        return full_text, run_map
+
+    def replace_tags(paragraph):
+        full_text, run_map = get_full_text_and_mapping(paragraph)
+        replaced = False
+
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
                 placeholder = "{{" + tag + "}}"
                 if placeholder in full_text:
+                    replaced = True
                     value = str(row[col])
-                    st.write(f"🔁 Remplacement prévu : {placeholder} → {value}")
-                    replacements[placeholder] = value
+                    full_text = full_text.replace(placeholder, value)
 
-        if replacements:
-            new_text = full_text
-            for placeholder, value in replacements.items():
-                new_text = new_text.replace(placeholder, value)
-
-            # Supprimer tous les runs
+        if replaced:
             for run in paragraph.runs:
-                p = run._element
-                p.getparent().remove(p)
+                run.text = ''
+            paragraph.clear()
+            paragraph.add_run(full_text)
 
-            # Ajouter le nouveau texte comme un seul run propre
-            paragraph.add_run(new_text)
-
-    def process_container(container):
-        for paragraph in container.paragraphs:
-            process_paragraph(paragraph)
+    def process(container):
+        for p in container.paragraphs:
+            replace_tags(p)
         for table in container.tables:
             for row in table.rows:
                 for cell in row.cells:
-                    process_container(cell)
+                    process(cell)
 
-    process_container(template)
+    process(template)
     for section in template.sections:
-        process_container(section.header)
-        process_container(section.footer)
+        process(section.header)
+        process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.12.2")
+    st.title("Publipostage Streamlit – Version 3.13")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
