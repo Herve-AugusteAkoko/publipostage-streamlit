@@ -31,52 +31,46 @@ def replace_placeholders_in_doc(template, mapping, row):
     def clean(text):
         return text.replace('\xa0', ' ').replace('\u200b', '').strip()
 
-    def find_placeholder_sequence(paragraph, placeholder):
-        runs = paragraph.runs
-        sequence = placeholder
-        positions = []
-        buffer = ''
-        start = 0
-        for i, run in enumerate(runs):
-            buffer += run.text
-            if sequence in buffer:
-                # Trouvé : déterminer les runs à remplacer
-                end = i
-                acc = ''
-                for j in range(i + 1):
-                    acc += runs[j].text
-                    if sequence in acc:
-                        return j - len(sequence) + 1, i
-        return None, None
+    def find_tag_runs(runs, tag):
+        placeholder = "{{" + tag + "}}"
+        clean_texts = [clean(run.text) for run in runs]
+        flat_text = ''.join(clean_texts)
+        index = flat_text.find(placeholder)
+        if index == -1:
+            return None
 
-    def replace_tags(paragraph):
-        full_text = ''.join([run.text for run in paragraph.runs])
+        count = 0
+        start_idx = None
+        end_idx = None
+        for i, txt in enumerate(clean_texts):
+            count += len(txt)
+            if start_idx is None and count >= index + 1:
+                start_idx = i
+            if count >= index + len(placeholder):
+                end_idx = i
+                break
+        return (start_idx, end_idx)
+
+    def replace_in_paragraph(paragraph):
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
-                placeholder = "{{" + tag + "}}"
                 value = str(row[col])
-                if placeholder in full_text:
-                    start, end = find_placeholder_sequence(paragraph, placeholder)
-                    if start is not None:
-                        # Supprimer les runs concernés
-                        for i in range(start, end + 1):
-                            r = paragraph.runs[start]
-                            r.clear()
-                            r.text = ''
-                            paragraph._element.remove(r._element)
-                        # Recréer un run avec le style du premier
-                        new_run = paragraph.add_run(value)
-                        if paragraph.runs:
-                            reference_run = paragraph.runs[start] if start < len(paragraph.runs) else paragraph.runs[0]
-                            new_run.bold = reference_run.bold
-                            new_run.italic = reference_run.italic
-                            new_run.underline = reference_run.underline
-                            new_run.font.name = reference_run.font.name
-                            new_run.font.size = reference_run.font.size
+                pos = find_tag_runs(paragraph.runs, tag)
+                if pos:
+                    start, end = pos
+                    original_style = paragraph.runs[start]
+                    for i in range(start, end + 1):
+                        paragraph.runs[i].text = ''
+                    paragraph.runs[start].text = value
+                    paragraph.runs[start].bold = original_style.bold
+                    paragraph.runs[start].italic = original_style.italic
+                    paragraph.runs[start].underline = original_style.underline
+                    paragraph.runs[start].font.name = original_style.font.name
+                    paragraph.runs[start].font.size = original_style.font.size
 
     def process(container):
         for p in container.paragraphs:
-            replace_tags(p)
+            replace_in_paragraph(p)
         for table in container.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -88,7 +82,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13.1")
+    st.title("Publipostage Streamlit – Version 3.13.2")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
