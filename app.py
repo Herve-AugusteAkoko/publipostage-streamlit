@@ -28,22 +28,27 @@ def extract_tags_from_docx(docx_file) -> set:
     return tags
 
 def replace_placeholders_in_doc(template, mapping, row):
+    def clean_text(text):
+        return text.replace('\xa0', ' ').replace('\u200b', '')
+
     def process_paragraph(paragraph):
         full_text = ''.join([run.text for run in paragraph.runs])
+        full_text_cleaned = clean_text(full_text)
+
         replacements = {}
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
-                value = str(row[col])
                 placeholder = "{{" + tag + "}}"
-                if placeholder in full_text:
+                if placeholder in full_text_cleaned:
+                    value = str(row[col])
                     replacements[placeholder] = value
+
         if replacements:
             for run in paragraph.runs:
                 run.text = ''
-            combined_text = full_text
             for placeholder, value in replacements.items():
-                combined_text = combined_text.replace(placeholder, value)
-            paragraph.add_run(combined_text)
+                full_text_cleaned = full_text_cleaned.replace(placeholder, value)
+            paragraph.add_run(full_text_cleaned)
 
     def process_container(container):
         for paragraph in container.paragraphs:
@@ -59,7 +64,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process_container(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.11")
+    st.title("Publipostage Streamlit – Version 3.12")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
