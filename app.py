@@ -7,7 +7,6 @@ def extract_tags_from_docx(docx_file) -> set:
     pattern = re.compile(r"\{\{\s*(.*?)\s*\}\}")
     doc = Document(docx_file)
     tags = set()
-    # Corps du document
     for p in doc.paragraphs:
         for match in pattern.findall(p.text):
             tags.add(match)
@@ -16,59 +15,51 @@ def extract_tags_from_docx(docx_file) -> set:
             for cell in row.cells:
                 for match in pattern.findall(cell.text):
                     tags.add(match)
-    # En-têtes et pieds-de-page
     for section in doc.sections:
-        header = section.header
-        for p in header.paragraphs:
-            for match in pattern.findall(p.text):
-                tags.add(match)
-        for table in header.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for match in pattern.findall(cell.text):
-                        tags.add(match)
-        footer = section.footer
-        for p in footer.paragraphs:
-            for match in pattern.findall(p.text):
-                tags.add(match)
-        for table in footer.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for match in pattern.findall(cell.text):
-                        tags.add(match)
+        for part in [section.header, section.footer]:
+            for p in part.paragraphs:
+                for match in pattern.findall(p.text):
+                    tags.add(match)
+            for table in part.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for match in pattern.findall(cell.text):
+                            tags.add(match)
     return tags
 
 def replace_placeholders_in_doc(template, mapping, row):
-    def replace_in_paragraphs(paragraphs):
-        for p in paragraphs:
-            for run in p.runs:
-                for tag, col in mapping.items():
-                    if col and col != "(laisser inchangée)" and col in row.index:
-                        placeholder = "{{" + tag + "}}"
-                        if placeholder in run.text:
-                            run.text = run.text.replace(placeholder, str(row[col]))
-    # Corps
-    replace_in_paragraphs(template.paragraphs)
-    for table in template.tables:
-        for row_cells in table.rows:
-            for cell in row_cells.cells:
-                replace_in_paragraphs(cell.paragraphs)
-    # En-têtes et pieds-de-page
+    def process_paragraph(paragraph):
+        full_text = ''.join([run.text for run in paragraph.runs])
+        replacements = {}
+        for tag, col in mapping.items():
+            if col and col != "(laisser inchangée)" and col in row.index:
+                value = str(row[col])
+                placeholder = "{{" + tag + "}}"
+                if placeholder in full_text:
+                    replacements[placeholder] = value
+        if replacements:
+            for run in paragraph.runs:
+                run.text = ''
+            combined_text = full_text
+            for placeholder, value in replacements.items():
+                combined_text = combined_text.replace(placeholder, value)
+            paragraph.add_run(combined_text)
+
+    def process_container(container):
+        for paragraph in container.paragraphs:
+            process_paragraph(paragraph)
+        for table in container.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    process_container(cell)
+
+    process_container(template)
     for section in template.sections:
-        replace_in_paragraphs(section.header.paragraphs)
-        for table in section.header.tables:
-            for row_cells in table.rows:
-                for cell in row_cells.cells:
-                    replace_in_paragraphs(cell.paragraphs)
-        replace_in_paragraphs(section.footer.paragraphs)
-        for table in section.footer.tables:
-            for row_cells in table.rows:
-                for cell in row_cells.cells:
-                    replace_in_paragraphs(cell.paragraphs)
+        process_container(section.header)
+        process_container(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit - Version 3.1")
-    st.markdown("**Étape 1 :** Sélectionnez votre modèle Word et votre fichier Excel.")
+    st.title("Publipostage Streamlit – Version 3.1")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
@@ -77,7 +68,6 @@ def main():
     tags = set()
     df = None
 
-    # Affichage conditionnel dans un expander
     if word_file or excel_file:
         with st.expander("📄 Afficher les détails du modèle (balises et colonnes détectées)"):
             if word_file:
@@ -88,13 +78,11 @@ def main():
                         st.write(f"- **{{{{{tag}}}}}**")
                 else:
                     st.info("Aucune balise {{…}} trouvée dans le document.")
-
             if excel_file:
                 df = pd.read_excel(excel_file)
                 st.markdown("### Colonnes détectées dans le fichier Excel")
                 st.write(list(df.columns))
 
-    # Mappage balise → colonne
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
@@ -108,12 +96,10 @@ def main():
         if st.button("Valider le mappage"):
             st.success("Mappage enregistré !")
 
-    # Génération et téléchargement
     if word_file and excel_file and mapping:
         if st.button("Générer les documents"):
             import io
             import zipfile
-
             df = pd.read_excel(excel_file)
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, mode="w") as zf:
@@ -125,7 +111,6 @@ def main():
                     output_io = io.BytesIO()
                     template.save(output_io)
                     zf.writestr(f"{fname}_{i}.docx", output_io.getvalue())
-
             zip_io.seek(0)
             st.download_button(
                 "Télécharger le ZIP des documents",
