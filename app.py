@@ -54,7 +54,6 @@ def replace_placeholders_in_doc(template, mapping, row):
             if not match:
                 continue
 
-            # Trouver où la balise commence/termine dans les runs
             tag_start, tag_end = match.start(), match.end()
             run_positions = []
             pos = 0
@@ -89,7 +88,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13.6")
+    st.title("Publipostage Streamlit – Version 3.13.7")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
@@ -135,6 +134,7 @@ def main():
         if st.button("Générer les documents"):
             import io
             import zipfile
+
             df = pd.read_excel(excel_file)
             model_name = os.path.splitext(word_file.name)[0].replace(" ", "_")
             zip_io = io.BytesIO()
@@ -148,11 +148,13 @@ def main():
                     output_io = io.BytesIO()
                     template.save(output_io)
                     zf.writestr(fname, output_io.getvalue())
+
             zip_io.seek(0)
+            zip_filename = f"{model_name}.zip"
             st.download_button(
                 "📥 Télécharger le ZIP des documents",
                 data=zip_io,
-                file_name="publipostage_documents.zip",
+                file_name=zip_filename,
                 mime="application/zip"
             )
 
