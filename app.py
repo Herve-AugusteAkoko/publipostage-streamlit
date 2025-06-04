@@ -3,6 +3,7 @@ import re
 from docx import Document
 import pandas as pd
 import unicodedata
+import os
 
 def normalize(text):
     return unicodedata.normalize("NFKC", text.replace('\xa0', ' ').replace('\u200b', '')).strip()
@@ -88,7 +89,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13.5")
+    st.title("Publipostage Streamlit – Version 3.13.6")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
@@ -135,16 +136,18 @@ def main():
             import io
             import zipfile
             df = pd.read_excel(excel_file)
+            model_name = os.path.splitext(word_file.name)[0].replace(" ", "_")
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, mode="w") as zf:
-                for i, row in df.iterrows():
+                for _, row in df.iterrows():
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-                    key = mapping.get('Name')
-                    fname = str(row[key]) if key and key in row.index else str(i)
+                    key = next((col for tag, col in mapping.items() if tag.lower() == "name" and col in row), None)
+                    person_name = str(row[key]).replace(" ", "_") if key else "inconnu"
+                    fname = f"{model_name}-{person_name}.docx"
                     output_io = io.BytesIO()
                     template.save(output_io)
-                    zf.writestr(f"{fname}_{i}.docx", output_io.getvalue())
+                    zf.writestr(fname, output_io.getvalue())
             zip_io.seek(0)
             st.download_button(
                 "📥 Télécharger le ZIP des documents",
