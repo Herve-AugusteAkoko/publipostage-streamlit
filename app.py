@@ -39,46 +39,29 @@ def extract_tags_from_docx(docx_file) -> set:
     return tags, jinja_found
 
 def replace_placeholders_in_doc(template, mapping, row):
-    def find_tag_runs(runs, tag):
-        placeholder = "{{" + tag + "}}"
-        clean_texts = [normalize(run.text) for run in runs]
-        full_text = ''.join(clean_texts)
-        idx = full_text.find(placeholder)
-        if idx == -1:
-            return None
-        # Trouver les runs qui couvrent l'intervalle
-        char_count = 0
-        start = None
-        end = None
-        for i, txt in enumerate(clean_texts):
-            char_count += len(txt)
-            if start is None and char_count > idx:
-                start = i
-            if char_count >= idx + len(placeholder):
-                end = i
-                break
-        return (start, end) if start is not None and end is not None else None
-
-    def replace_in_paragraph(paragraph):
+    def reconstruct_runs_and_replace(paragraph):
+        full_text = ''.join(run.text for run in paragraph.runs)
+        clean_text = normalize(full_text)
+        replacements = {}
         for tag, col in mapping.items():
             if col and col != "(laisser inchangée)" and col in row.index:
-                value = str(row[col])
-                pos = find_tag_runs(paragraph.runs, tag)
-                if pos:
-                    start, end = pos
-                    reference = paragraph.runs[start]
-                    for i in range(start, end + 1):
-                        paragraph.runs[i].text = ''
-                    paragraph.runs[start].text = value
-                    paragraph.runs[start].bold = reference.bold
-                    paragraph.runs[start].italic = reference.italic
-                    paragraph.runs[start].underline = reference.underline
-                    paragraph.runs[start].font.name = reference.font.name
-                    paragraph.runs[start].font.size = reference.font.size
+                placeholder = "{{" + tag + "}}"
+                if normalize(placeholder) in clean_text:
+                    replacements[placeholder] = str(row[col])
+        if not replacements:
+            return
+        # Clear runs
+        for run in paragraph.runs:
+            run.text = ''
+        # Insert new runs with original style
+        new_text = full_text
+        for placeholder, value in replacements.items():
+            new_text = normalize(new_text).replace(normalize(placeholder), value)
+        paragraph.add_run(new_text)
 
     def process(container):
         for p in container.paragraphs:
-            replace_in_paragraph(p)
+            reconstruct_runs_and_replace(p)
         for table in container.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -90,7 +73,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13.3")
+    st.title("Publipostage Streamlit – Version 3.13.4")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
@@ -106,17 +89,18 @@ def main():
     if jinja_found:
         st.warning("⚠️ Le modèle Word contient des blocs conditionnels comme `{% if ... %}`. Ceux-ci ne seront pas traités.")
 
-    if tags:
-        st.markdown("### Balises détectées dans le modèle Word")
-        for tag in sorted(tags):
-            st.write(f"- **{{{{{tag}}}}}**")
-    elif word_file:
-        st.info("Aucune balise {{…}} trouvée dans le document.")
-
-    if excel_file:
-        df = pd.read_excel(excel_file)
-        st.markdown("### Colonnes détectées dans le fichier Excel")
-        st.write(list(df.columns))
+    if word_file or excel_file:
+        with st.expander("📄 Afficher les détails du modèle (balises et colonnes détectées)"):
+            if tags:
+                st.markdown("### Balises détectées dans le modèle Word")
+                for tag in sorted(tags):
+                    st.write(f"- **{{{{{tag}}}}}**")
+            elif word_file:
+                st.info("Aucune balise {{…}} trouvée dans le document.")
+            if excel_file:
+                df = pd.read_excel(excel_file)
+                st.markdown("### Colonnes détectées dans le fichier Excel")
+                st.write(list(df.columns))
 
     if word_file and excel_file:
         if df is None:
