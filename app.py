@@ -4,6 +4,7 @@ from docx import Document
 import pandas as pd
 import io
 import zipfile
+import os
 
 def extract_tags_from_docx(docx_file) -> set:
     pattern = re.compile(r"\{\{\s*(.*?)\s*\}\}")
@@ -31,21 +32,13 @@ def extract_tags_from_docx(docx_file) -> set:
 
 def replace_placeholders_in_doc(template, mapping, row):
     def process_paragraph(paragraph):
-        full_text = ''.join([run.text for run in paragraph.runs])
-        replacements = {}
-        for tag, col in mapping.items():
-            if col and col != "(laisser inchangée)" and col in row.index:
-                value = str(row[col])
-                placeholder = "{{" + tag + "}}"
-                if placeholder in full_text:
-                    replacements[placeholder] = value
-        if replacements:
-            for run in paragraph.runs:
-                run.text = ''
-            combined_text = full_text
-            for placeholder, value in replacements.items():
-                combined_text = combined_text.replace(placeholder, value)
-            paragraph.add_run(combined_text)
+        for run in paragraph.runs:
+            original_text = run.text
+            for tag, col in mapping.items():
+                if col and col != "(laisser inchangée)" and col in row.index:
+                    placeholder = f"{{{{{tag}}}}}"
+                    if placeholder in run.text:
+                        run.text = run.text.replace(placeholder, str(row[col]))
 
     def process_container(container):
         for paragraph in container.paragraphs:
@@ -70,6 +63,7 @@ def main():
     mapping = {}
     tags = set()
     df = None
+    mapping_confirmed = False
 
     if word_file or excel_file:
         with st.expander("🧾 Voir les balises détectées et colonnes disponibles"):
@@ -97,24 +91,30 @@ def main():
             default = cols.index(tag) if tag in df.columns else 0
             mapping[tag] = st.selectbox(f"Balise : {{{{{tag}}}}}", cols, index=default)
 
-        st.markdown("**Étape 3 :** Cliquez ci-dessous pour générer les documents personnalisés")
-        if st.button("Créer les courriers personnalisés"):
+        if st.button("✅ Confirmer l'association des champs"):
+            st.success("Association enregistrée avec succès.")
+            mapping_confirmed = True
+
+    if word_file and excel_file and mapping:
+        if st.button("📂 Générer les courriers personnalisés"):
+            df = pd.read_excel(excel_file)
+            model_name = os.path.splitext(word_file.name)[0].replace(" ", "_")
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, mode="w") as zf:
                 for i, row in df.iterrows():
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-                    key = mapping.get('Nom') or mapping.get('name')
-                    fname = str(row[key]) if key and key in row.index else f"document_{i}"
+                    key = mapping.get('Nom') or mapping.get('name') or None
+                    person_name = str(row[key]) if key and key in row.index else f"Document_{i}"
                     output_io = io.BytesIO()
                     template.save(output_io)
-                    zf.writestr(f"{fname}.docx", output_io.getvalue())
+                    zf.writestr(f"{model_name} - {person_name}.docx", output_io.getvalue())
 
             zip_io.seek(0)
             st.download_button(
-                "📥 Télécharger tous les documents (ZIP)",
+                "📥 Télécharger l'ensemble des documents (ZIP)",
                 data=zip_io,
-                file_name="Documents_juridiques_personnalises.zip",
+                file_name=f"{model_name}_documents.zip",
                 mime="application/zip"
             )
 
