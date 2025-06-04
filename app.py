@@ -32,13 +32,21 @@ def extract_tags_from_docx(docx_file) -> set:
 
 def replace_placeholders_in_doc(template, mapping, row):
     def process_paragraph(paragraph):
-        for run in paragraph.runs:
-            original_text = run.text
-            for tag, col in mapping.items():
-                if col and col != "(laisser inchangée)" and col in row.index:
-                    placeholder = f"{{{{{tag}}}}}"
-                    if placeholder in run.text:
-                        run.text = run.text.replace(placeholder, str(row[col]))
+        full_text = ''.join([run.text for run in paragraph.runs])
+        replacements = {}
+        for tag, col in mapping.items():
+            if col and col != "(laisser inchangée)" and col in row.index:
+                value = str(row[col])
+                placeholder = "{{" + tag + "}}"
+                if placeholder in full_text:
+                    replacements[placeholder] = value
+        if replacements:
+            for run in paragraph.runs:
+                run.text = ''
+            combined_text = full_text
+            for placeholder, value in replacements.items():
+                combined_text = combined_text.replace(placeholder, value)
+            paragraph.add_run(combined_text)
 
     def process_container(container):
         for paragraph in container.paragraphs:
@@ -114,7 +122,7 @@ def main():
             st.download_button(
                 "📥 Télécharger l'ensemble des documents (ZIP)",
                 data=zip_io,
-                file_name=f"{model_name}_documents.zip",
+                file_name=f"{model_name}.zip",
                 mime="application/zip"
             )
 
