@@ -88,23 +88,23 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.set_page_config(page_title="Générateur de documents juridiques", page_icon="📄")
-    st.title("Générateur de documents pour cabinets juridiques")
+    st.set_page_config(page_title="Générateur de documents juridiques", page_icon="⚖️")
+    st.title("🧾 Assistant de génération de documents – Cabinets d'avocats")
     st.markdown("""
-    Ce service vous permet de générer automatiquement des documents à partir d'un modèle Word et d'un tableau Excel de données clients.
+    Ce service vous permet de générer automatiquement des documents juridiques à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
     
-    Veuillez suivre les étapes ci-dessous pour importer vos fichiers et lancer la génération.
+    Veuillez suivre les étapes ci-dessous pour importer vos fichiers, établir les correspondances et générer les documents.
     """)
 
-    with st.expander("🔐 Informations de confidentialité"):
+    with st.expander("🔐 Politique de confidentialité"):
         st.markdown("""
-        Les documents que vous téléversez ne sont jamais stockés. Ils sont traités uniquement pendant votre session, puis immédiatement supprimés.
-        
-        ✅ Conforme aux exigences RGPD.
+        Les fichiers que vous chargez ne sont jamais stockés. Ils sont traités uniquement pendant votre session et supprimés ensuite automatiquement.
+
+        ✅ Conforme au Règlement Général sur la Protection des Données (RGPD).
         """)
 
-    word_file = st.file_uploader("📄 Modèle Word (.docx)", type="docx")
-    excel_file = st.file_uploader("📊 Données clients (.xls/.xlsx)", type=["xls", "xlsx"])
+    word_file = st.file_uploader("📄 Télécharger votre modèle Word (.docx)", type="docx")
+    excel_file = st.file_uploader("📊 Importer votre tableau Excel (.xls/.xlsx)", type=["xls", "xlsx"])
 
     mapping = {}
     tags = set()
@@ -115,36 +115,36 @@ def main():
         tags, jinja_found = extract_tags_from_docx(word_file)
 
     if jinja_found:
-        st.warning("⚠️ Le modèle Word contient des blocs conditionnels comme `{% if ... %}`. Ceux-ci ne seront pas traités.")
+        st.warning("⚠️ Le modèle Word contient des blocs conditionnels comme `{% if ... %}`. Ceux-ci ne seront pas traités dans cette version.")
 
     if word_file or excel_file:
-        with st.expander("📑 Aperçu du modèle et des données"):
+        with st.expander("📂 Aperçu des données importées"):
             if tags:
-                st.markdown("### Balises détectées dans le modèle Word")
+                st.markdown("### Champs personnalisables détectés dans le modèle")
                 for tag in sorted(tags):
                     st.write(f"- **{{{{{tag}}}}}**")
             elif word_file:
                 st.info("Aucune balise {{…}} trouvée dans le document.")
             if excel_file:
                 df = pd.read_excel(excel_file)
-                st.markdown("### Colonnes détectées dans le fichier Excel")
+                st.markdown("### Colonnes disponibles depuis le fichier Excel")
                 st.write(list(df.columns))
 
     confirmed = False
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
-        st.markdown("### Étape suivante : associer les balises aux colonnes Excel")
+        st.markdown("### Étape suivante : associer chaque champ du modèle aux données Excel")
         cols = ["(laisser inchangée)"] + list(df.columns)
         for tag in sorted(tags):
             default = cols.index(tag) if tag in df.columns else 0
-            mapping[tag] = st.selectbox(f"Balise : `{{{{{tag}}}}}`", cols, index=default)
-        if st.button("✅ Confirmer le mappage"):
-            st.success("Mappage enregistré avec succès.")
+            mapping[tag] = st.selectbox(f"Champ modèle : `{{{{{tag}}}}}`", cols, index=default)
+        if st.button("🔗 Enregistrer les correspondances"):
+            st.success("🔄 Correspondances enregistrées avec succès.")
             confirmed = True
 
     if word_file and excel_file and mapping:
-        if st.button("🛠️ Générer les documents"):
+        if st.button("📂 Générer les documents personnalisés"):
             import io
             import zipfile
 
@@ -165,7 +165,7 @@ def main():
             zip_io.seek(0)
             zip_filename = f"{model_name}.zip"
             st.download_button(
-                "📥 Télécharger tous les documents (ZIP)",
+                "📥 Télécharger l'ensemble des documents (ZIP)",
                 data=zip_io,
                 file_name=zip_filename,
                 mime="application/zip"
