@@ -39,29 +39,44 @@ def extract_tags_from_docx(docx_file) -> set:
     return tags, jinja_found
 
 def replace_placeholders_in_doc(template, mapping, row):
-    def reconstruct_runs_and_replace(paragraph):
-        full_text = ''.join(run.text for run in paragraph.runs)
+    def replace_in_paragraph(paragraph):
+        runs = paragraph.runs
+        full_text = ''.join(run.text for run in runs)
         clean_text = normalize(full_text)
-        replacements = {}
+
         for tag, col in mapping.items():
-            if col and col != "(laisser inchangée)" and col in row.index:
-                placeholder = "{{" + tag + "}}"
-                if normalize(placeholder) in clean_text:
-                    replacements[placeholder] = str(row[col])
-        if not replacements:
-            return
-        # Clear runs
-        for run in paragraph.runs:
-            run.text = ''
-        # Insert new runs with original style
-        new_text = full_text
-        for placeholder, value in replacements.items():
-            new_text = normalize(new_text).replace(normalize(placeholder), value)
-        paragraph.add_run(new_text)
+            if not col or col == "(laisser inchangée)" or col not in row.index:
+                continue
+            value = str(row[col])
+            regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
+            match = regex.search(clean_text)
+            if not match:
+                continue
+
+            # Trouver où la balise commence/termine dans les runs
+            tag_start, tag_end = match.start(), match.end()
+            run_positions = []
+            pos = 0
+            for i, run in enumerate(runs):
+                text = normalize(run.text)
+                if pos + len(text) >= tag_start and pos <= tag_end:
+                    run_positions.append(i)
+                pos += len(text)
+
+            if run_positions:
+                first_run = runs[run_positions[0]]
+                for i in run_positions:
+                    runs[i].text = ""
+                new_run = paragraph.add_run(value)
+                new_run.bold = first_run.bold
+                new_run.italic = first_run.italic
+                new_run.underline = first_run.underline
+                new_run.font.name = first_run.font.name
+                new_run.font.size = first_run.font.size
 
     def process(container):
         for p in container.paragraphs:
-            reconstruct_runs_and_replace(p)
+            replace_in_paragraph(p)
         for table in container.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -73,7 +88,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.title("Publipostage Streamlit – Version 3.13.4")
+    st.title("Publipostage Streamlit – Version 3.13.5")
 
     word_file = st.file_uploader("Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("Fichier de données (.xls/.xlsx)", type=["xls", "xlsx"])
@@ -102,6 +117,7 @@ def main():
                 st.markdown("### Colonnes détectées dans le fichier Excel")
                 st.write(list(df.columns))
 
+    confirmed = False
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
@@ -110,10 +126,15 @@ def main():
         for tag in sorted(tags):
             default = cols.index(tag) if tag in df.columns else 0
             mapping[tag] = st.selectbox(f"{{{{{tag}}}}}", cols, index=default)
+        if st.button("Valider le mappage"):
+            st.success("✅ Mappage appliqué !")
+            confirmed = True
 
+    if word_file and excel_file and mapping:
         if st.button("Générer les documents"):
             import io
             import zipfile
+            df = pd.read_excel(excel_file)
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, mode="w") as zf:
                 for i, row in df.iterrows():
