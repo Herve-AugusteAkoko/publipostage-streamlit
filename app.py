@@ -88,8 +88,14 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    st.set_page_config(page_title="Générateur de documents juridiques", page_icon="⚖️")
-    st.title("🧾 Assistant de génération de documents – Cabinets d'avocats")
+    # === Page config modifié pour bêta / version 3.5 ===
+    st.set_page_config(
+        page_title="🛠️ Bêta Juridique – Générateur V3.5",
+        page_icon="⚖️"
+    )
+    st.title("🛠️ Bêta Juridique – Assistant de génération V3.5")
+    # =====================================================
+
     st.markdown("""
     Ce service vous permet de générer automatiquement des documents juridiques à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
     
@@ -127,6 +133,7 @@ def main():
                 st.info("Aucune balise {{…}} trouvée dans le document.")
             if excel_file:
                 df = pd.read_excel(excel_file)
+                df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes ajouté ici
                 st.markdown("### Colonnes disponibles depuis le fichier Excel")
                 st.write(list(df.columns))
 
@@ -134,6 +141,7 @@ def main():
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
+            df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes également ici
         st.markdown("### Étape suivante : associer chaque champ du modèle aux données Excel")
         cols = ["(laisser inchangée)"] + list(df.columns)
         for tag in sorted(tags):
@@ -149,6 +157,7 @@ def main():
             import zipfile
 
             df = pd.read_excel(excel_file)
+            df.columns = df.columns.str.strip()  # <<< et ici également
             model_name = os.path.splitext(word_file.name)[0].replace(" ", "_")
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, mode="w") as zf:
