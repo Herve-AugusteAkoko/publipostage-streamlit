@@ -4,6 +4,8 @@ from docx import Document
 import pandas as pd
 import unicodedata
 import os
+import io
+import zipfile
 
 def normalize(text):
     return unicodedata.normalize("NFKC", text.replace('\xa0', ' ').replace('\u200b', '')).strip()
@@ -50,29 +52,14 @@ def replace_placeholders_in_doc(template, mapping, row):
                 continue
             value = str(row[col])
             regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
-            match = regex.search(clean_text)
-            if not match:
-                continue
+            full_text = regex.sub(value, full_text)
 
-            tag_start, tag_end = match.start(), match.end()
-            run_positions = []
-            pos = 0
-            for i, run in enumerate(runs):
-                text = normalize(run.text)
-                if pos + len(text) >= tag_start and pos <= tag_end:
-                    run_positions.append(i)
-                pos += len(text)
-
-            if run_positions:
-                first_run = runs[run_positions[0]]
-                for i in run_positions:
-                    runs[i].text = ""
-                new_run = paragraph.add_run(value)
-                new_run.bold = first_run.bold
-                new_run.italic = first_run.italic
-                new_run.underline = first_run.underline
-                new_run.font.name = first_run.font.name
-                new_run.font.size = first_run.font.size
+        # Clear old runs and set new text with first run's style
+        if runs:
+            first_run = runs[0]
+            first_run.text = full_text
+            for run in runs[1:]:
+                run.text = ""
 
     def process(container):
         for p in container.paragraphs:
@@ -133,7 +120,7 @@ def main():
                 st.info("Aucune balise {{…}} trouvée dans le document.")
             if excel_file:
                 df = pd.read_excel(excel_file)
-                df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes ajouté ici
+                df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes ici
                 st.markdown("### Colonnes disponibles depuis le fichier Excel")
                 st.write(list(df.columns))
 
@@ -141,7 +128,7 @@ def main():
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
-            df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes également ici
+            df.columns = df.columns.str.strip()  # <<< nettoyage également ici
         st.markdown("### Étape suivante : associer chaque champ du modèle aux données Excel")
         cols = ["(laisser inchangée)"] + list(df.columns)
         for tag in sorted(tags):
@@ -151,30 +138,59 @@ def main():
             st.success("🔄 Correspondances enregistrées avec succès.")
             confirmed = True
 
-    if word_file and excel_file and mapping:
+    if word_file and excel_file and confirmed:
         if st.button("📂 Générer les documents personnalisés"):
-            import io
-            import zipfile
-
+            # 1. Lecture et nettoyage
             df = pd.read_excel(excel_file)
-            df.columns = df.columns.str.strip()  # <<< et ici également
-            model_name = os.path.splitext(word_file.name)[0].replace(" ", "_")
+            df.columns = df.columns.str.strip()
+
+            # 2. Préparation du nom de base du modèle
+            raw = os.path.splitext(word_file.name)[0]        # e.g. "2.0_2025_-_Verley_…"
+            clean_name = raw.replace("_", " ")               # e.g. "2.0 2025 - Verley …"
+            parts = clean_name.split(" ", 1)                 # ["2.0", "2025 - Verley …"]
+            prefix = parts[0]
+            rest   = parts[1] if len(parts) > 1 else ""
+
+            # 3. Extraction major/minor
+            try:
+                major, minor = prefix.split(".")
+                minor = int(minor)
+            except ValueError:
+                major, minor = prefix, 0
+
+            # 4. Construction de l’archive
             zip_io = io.BytesIO()
-            with zipfile.ZipFile(zip_io, mode="w") as zf:
-                for _, row in df.iterrows():
+            with zipfile.ZipFile(zip_io, "w") as zf:
+                for idx, row in df.iterrows():
+                    # 4.1 Remplacement des balises
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-                    key = next((col for tag, col in mapping.items() if tag.lower() == "name" and col in row), None)
-                    person_name = str(row[key]).replace(" ", "_") if key else "inconnu"
-                    fname = f"{model_name}-{person_name}.docx"
-                    output_io = io.BytesIO()
-                    template.save(output_io)
-                    zf.writestr(fname, output_io.getvalue())
+
+                    # 4.2 Calcul du nouveau préfixe
+                    seq = minor + idx + 1
+                    new_pref = f"{major}.{seq}"
+
+                    # 4.3 Récupération du nom de la personne
+                    key = next(
+                        (col for tag, col in mapping.items()
+                         if tag.lower()=="name" and col in row.index),
+                        None
+                    )
+                    person = str(row[key]).strip() if key else "inconnu"
+
+                    # 4.4 Nom complet du fichier
+                    fname = f"{new_pref} {rest} - {person}.docx"
+
+                    # 4.5 Sauvegarde dans le ZIP
+                    out = io.BytesIO()
+                    template.save(out)
+                    zf.writestr(fname, out.getvalue())
 
             zip_io.seek(0)
-            zip_filename = f"{model_name}.zip"
+            # 5. Nom du ZIP final
+            zip_filename = f"{clean_name}.zip"
             st.download_button(
-                "📥 Télécharger l'ensemble des documents (ZIP)",
+                "📥 Télécharger l’ensemble des documents (ZIP)",
                 data=zip_io,
                 file_name=zip_filename,
                 mime="application/zip"
