@@ -47,7 +47,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         full_text = ''.join(run.text for run in runs)
         clean_text = normalize(full_text)
 
-        # Substitution in situ dans full_text
+        # Substitution in situ de chaque balise
         for tag, col in mapping.items():
             if not col or col == "(laisser inchangée)" or col not in row.index:
                 continue
@@ -55,7 +55,7 @@ def replace_placeholders_in_doc(template, mapping, row):
             regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
             full_text = regex.sub(value, full_text)
 
-        # Réécriture du paragraphe dans un seul run (style du premier run)
+        # Réécriture du paragraphe avec le style du premier run
         if runs:
             first_run = runs[0]
             first_run.text = full_text
@@ -83,6 +83,10 @@ def main():
     )
     st.title("🛠️ Bêta Juridique – Assistant de génération V3.5")
 
+    # Initialisation de l'état de mapping
+    if "mapping_done" not in st.session_state:
+        st.session_state["mapping_done"] = False
+
     st.markdown("""
     Ce service vous permet de générer automatiquement des documents juridiques  
     à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
@@ -95,7 +99,7 @@ def main():
         ✅ Conforme au RGPD.
         """)
 
-    # Upload
+    # Upload des fichiers
     word_file  = st.file_uploader("📄 Télécharger votre modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("📊 Importer votre tableau Excel (.xls/.xlsx)", type=["xls", "xlsx"])
 
@@ -110,7 +114,7 @@ def main():
     if jinja_found:
         st.warning("⚠️ Le modèle contient des blocs conditionnels Jinja non traités.")
 
-    # Aperçu des données
+    # Aperçu des données importées
     if word_file or excel_file:
         with st.expander("📂 Aperçu des données importées"):
             if tags:
@@ -121,12 +125,11 @@ def main():
                 st.info("Aucune balise {{…}} détectée.")
             if excel_file:
                 df = pd.read_excel(excel_file)
-                df.columns = df.columns.str.strip()  # Nettoyage des colonnes
+                df.columns = df.columns.str.strip()
                 st.markdown("### Colonnes disponibles")
                 st.write(list(df.columns))
 
-    # Mapping balises ↔ colonnes
-    confirmed = False
+    # Mapping balises → colonnes
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
@@ -137,13 +140,13 @@ def main():
             default = cols.index(tag) if tag in df.columns else 0
             mapping[tag] = st.selectbox(f"Champ modèle : {{{{{tag}}}}}", cols, index=default)
         if st.button("🔗 Enregistrer les correspondances"):
+            st.session_state["mapping_done"] = True
             st.success("🔄 Correspondances enregistrées avec succès.")
-            confirmed = True
 
-    # Génération + download
-    if word_file and excel_file and confirmed:
+    # Génération et téléchargement
+    if word_file and excel_file and st.session_state["mapping_done"]:
         if st.button("📂 Générer les documents personnalisés"):
-            # Lecture & nettoyage
+            # Lecture et nettoyage
             df = pd.read_excel(excel_file)
             df.columns = df.columns.str.strip()
 
@@ -170,18 +173,19 @@ def main():
                     seq      = minor + idx + 1
                     new_pref = f"{major}.{seq}"
                     key      = next((col for tag, col in mapping.items() 
-                                      if tag.lower()=="name" and col in row.index), None)
+                                     if tag.lower()=="name" and col in row.index), None)
                     person   = str(row[key]).strip() if key else "inconnu"
                     fname    = f"{new_pref} {rest} - {person}.docx"
                     out = io.BytesIO()
                     template.save(out)
                     zf.writestr(fname, out.getvalue())
             zip_io.seek(0)
+
             # Stockage en session
             st.session_state["zip_data"]     = zip_io.getvalue()
             st.session_state["zip_filename"] = f"{clean_name}.zip"
 
-        # Bouton de téléchargement disponible après génération
+        # Bouton de téléchargement visible après génération
         if st.session_state.get("zip_data"):
             st.download_button(
                 "📥 Télécharger l’ensemble des documents (ZIP)",
