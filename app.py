@@ -47,6 +47,7 @@ def replace_placeholders_in_doc(template, mapping, row):
         full_text = ''.join(run.text for run in runs)
         clean_text = normalize(full_text)
 
+        # Substitution in situ dans full_text
         for tag, col in mapping.items():
             if not col or col == "(laisser inchangée)" or col not in row.index:
                 continue
@@ -54,7 +55,7 @@ def replace_placeholders_in_doc(template, mapping, row):
             regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
             full_text = regex.sub(value, full_text)
 
-        # Clear old runs and set new text with first run's style
+        # Réécriture du paragraphe dans un seul run (style du premier run)
         if runs:
             first_run = runs[0]
             first_run.text = full_text
@@ -75,28 +76,27 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    # === Page config modifié pour bêta / version 3.5 ===
+    # Configuration de la page pour Bêta V3.5
     st.set_page_config(
         page_title="🛠️ Bêta Juridique – Générateur V3.5",
         page_icon="⚖️"
     )
     st.title("🛠️ Bêta Juridique – Assistant de génération V3.5")
-    # =====================================================
 
     st.markdown("""
-    Ce service vous permet de générer automatiquement des documents juridiques à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
-    
-    Veuillez suivre les étapes ci-dessous pour importer vos fichiers, établir les correspondances et générer les documents.
+    Ce service vous permet de générer automatiquement des documents juridiques  
+    à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
     """)
 
     with st.expander("🔐 Politique de confidentialité"):
         st.markdown("""
-        Les fichiers que vous chargez ne sont jamais stockés. Ils sont traités uniquement pendant votre session et supprimés ensuite automatiquement.
-
-        ✅ Conforme au Règlement Général sur la Protection des Données (RGPD).
+        Les fichiers que vous chargez ne sont jamais stockés. Ils sont traités  
+        uniquement pendant votre session et supprimés ensuite automatiquement.  
+        ✅ Conforme au RGPD.
         """)
 
-    word_file = st.file_uploader("📄 Télécharger votre modèle Word (.docx)", type="docx")
+    # Upload
+    word_file  = st.file_uploader("📄 Télécharger votre modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("📊 Importer votre tableau Excel (.xls/.xlsx)", type=["xls", "xlsx"])
 
     mapping = {}
@@ -104,96 +104,91 @@ def main():
     df = None
     jinja_found = False
 
+    # Extraction des balises
     if word_file:
         tags, jinja_found = extract_tags_from_docx(word_file)
-
     if jinja_found:
-        st.warning("⚠️ Le modèle Word contient des blocs conditionnels comme `{% if ... %}`. Ceux-ci ne seront pas traités dans cette version.")
+        st.warning("⚠️ Le modèle contient des blocs conditionnels Jinja non traités.")
 
+    # Aperçu des données
     if word_file or excel_file:
         with st.expander("📂 Aperçu des données importées"):
             if tags:
-                st.markdown("### Champs personnalisables détectés dans le modèle")
+                st.markdown("### Champs personnalisables détectés")
                 for tag in sorted(tags):
                     st.write(f"- **{{{{{tag}}}}}**")
             elif word_file:
-                st.info("Aucune balise {{…}} trouvée dans le document.")
+                st.info("Aucune balise {{…}} détectée.")
             if excel_file:
                 df = pd.read_excel(excel_file)
-                df.columns = df.columns.str.strip()  # <<< nettoyage des colonnes ici
-                st.markdown("### Colonnes disponibles depuis le fichier Excel")
+                df.columns = df.columns.str.strip()  # Nettoyage des colonnes
+                st.markdown("### Colonnes disponibles")
                 st.write(list(df.columns))
 
+    # Mapping balises ↔ colonnes
     confirmed = False
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
-            df.columns = df.columns.str.strip()  # <<< nettoyage également ici
-        st.markdown("### Étape suivante : associer chaque champ du modèle aux données Excel")
+            df.columns = df.columns.str.strip()
+        st.markdown("### Associer chaque champ du modèle aux données Excel")
         cols = ["(laisser inchangée)"] + list(df.columns)
         for tag in sorted(tags):
             default = cols.index(tag) if tag in df.columns else 0
-            mapping[tag] = st.selectbox(f"Champ modèle : `{{{{{tag}}}}}`", cols, index=default)
+            mapping[tag] = st.selectbox(f"Champ modèle : {{{{{tag}}}}}", cols, index=default)
         if st.button("🔗 Enregistrer les correspondances"):
             st.success("🔄 Correspondances enregistrées avec succès.")
             confirmed = True
 
+    # Génération + download
     if word_file and excel_file and confirmed:
         if st.button("📂 Générer les documents personnalisés"):
-            # 1. Lecture et nettoyage
+            # Lecture & nettoyage
             df = pd.read_excel(excel_file)
             df.columns = df.columns.str.strip()
 
-            # 2. Préparation du nom de base du modèle
-            raw = os.path.splitext(word_file.name)[0]        # e.g. "2.0_2025_-_Verley_…"
-            clean_name = raw.replace("_", " ")               # e.g. "2.0 2025 - Verley …"
-            parts = clean_name.split(" ", 1)                 # ["2.0", "2025 - Verley …"]
-            prefix = parts[0]
-            rest   = parts[1] if len(parts) > 1 else ""
+            # Préparation du nom du modèle
+            raw        = os.path.splitext(word_file.name)[0]
+            clean_name = raw.replace("_", " ")
+            parts      = clean_name.split(" ", 1)
+            prefix     = parts[0]
+            rest       = parts[1] if len(parts) > 1 else ""
 
-            # 3. Extraction major/minor
+            # Extraction major/minor
             try:
                 major, minor = prefix.split(".")
                 minor = int(minor)
             except ValueError:
                 major, minor = prefix, 0
 
-            # 4. Construction de l’archive
+            # Construction du ZIP
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, "w") as zf:
                 for idx, row in df.iterrows():
-                    # 4.1 Remplacement des balises
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-
-                    # 4.2 Calcul du nouveau préfixe
-                    seq = minor + idx + 1
+                    seq      = minor + idx + 1
                     new_pref = f"{major}.{seq}"
-
-                    # 4.3 Récupération du nom de la personne
-                    key = next(
-                        (col for tag, col in mapping.items()
-                         if tag.lower()=="name" and col in row.index),
-                        None
-                    )
-                    person = str(row[key]).strip() if key else "inconnu"
-
-                    # 4.4 Nom complet du fichier
-                    fname = f"{new_pref} {rest} - {person}.docx"
-
-                    # 4.5 Sauvegarde dans le ZIP
+                    key      = next((col for tag, col in mapping.items() 
+                                      if tag.lower()=="name" and col in row.index), None)
+                    person   = str(row[key]).strip() if key else "inconnu"
+                    fname    = f"{new_pref} {rest} - {person}.docx"
                     out = io.BytesIO()
                     template.save(out)
                     zf.writestr(fname, out.getvalue())
-
             zip_io.seek(0)
-            # 5. Nom du ZIP final
-            zip_filename = f"{clean_name}.zip"
+            # Stockage en session
+            st.session_state["zip_data"]     = zip_io.getvalue()
+            st.session_state["zip_filename"] = f"{clean_name}.zip"
+
+        # Bouton de téléchargement disponible après génération
+        if st.session_state.get("zip_data"):
             st.download_button(
                 "📥 Télécharger l’ensemble des documents (ZIP)",
-                data=zip_io,
-                file_name=zip_filename,
-                mime="application/zip"
+                data=st.session_state["zip_data"],
+                file_name=st.session_state["zip_filename"],
+                mime="application/zip",
+                key="download-zip"
             )
 
 if __name__ == "__main__":
