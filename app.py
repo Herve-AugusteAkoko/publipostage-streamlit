@@ -129,16 +129,37 @@ def main():
                 st.markdown("### Colonnes disponibles")
                 st.write(list(df.columns))
 
-    # Mapping balises → colonnes
+    # Mapping balises → colonnes (strict par défaut, ou tolérant si activé)
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
             df.columns = df.columns.str.strip()
+
         st.markdown("### Associer chaque champ du modèle aux données Excel")
+
+        # Toggle strict vs tolérant
+        tol = st.checkbox(
+            "Activer le mapping tolérant (ignorer la casse et les underscores)",
+            value=False
+        )
+
         cols = ["(laisser inchangée)"] + list(df.columns)
+        normalized = [c.lower().replace("_", "") for c in df.columns]
+
         for tag in sorted(tags):
-            default = cols.index(tag) if tag in df.columns else 0
+            if tol:
+                # mode tolérant
+                tag_norm = tag.lower().replace("_", "")
+                if tag_norm in normalized:
+                    default = normalized.index(tag_norm) + 1
+                else:
+                    default = 0
+            else:
+                # mode strict
+                default = cols.index(tag) if tag in df.columns else 0
+
             mapping[tag] = st.selectbox(f"Champ modèle : {{{{{tag}}}}}", cols, index=default)
+
         if st.button("🔗 Enregistrer les correspondances"):
             st.session_state["mapping_done"] = True
             st.success("🔄 Correspondances enregistrées avec succès.")
