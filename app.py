@@ -106,13 +106,14 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    # Page config V3.5
+    # Page config
     st.set_page_config(
-        page_title="🛠️ Bêta Juridique – Générateur V3.5",
+        page_title="Assistant de génération de documents juridiques",
         page_icon="⚖️"
     )
-    st.title("🛠️ Bêta Juridique – Assistant de génération V3.5")
+    st.title("Assistant de génération de documents juridiques")
 
+    # Initialisation de l'état de mapping
     if "mapping_done" not in st.session_state:
         st.session_state["mapping_done"] = False
 
@@ -128,6 +129,7 @@ def main():
         ✅ Conforme RGPD.
         """)
 
+    # Upload des fichiers
     word_file  = st.file_uploader("📄 Modèle Word (.docx)", type="docx")
     excel_file = st.file_uploader("📊 Données Excel (.xls/.xlsx)", type=["xls", "xlsx"])
 
@@ -216,7 +218,7 @@ def main():
 
         if st.session_state.get("zip_data"):
             st.download_button(
-                "📥 Télécharger ZIP",
+                "📥 Télécharger vos documents personnalisés",
                 data=st.session_state["zip_data"],
                 file_name=st.session_state["zip_filename"],
                 mime="application/zip"
