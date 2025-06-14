@@ -44,14 +44,15 @@ def extract_tags_from_docx(docx_file) -> set:
 def replace_placeholders_in_doc(template, mapping, row):
     """
     Remplace les placeholders {{Tag}} même s’ils sont répartis sur plusieurs runs,
-    en conservant le style du premier run de chaque occurrence.
+    en écrivant la valeur directement dans le premier run impacté,
+    et en vidant le texte des autres runs concernés.
     """
     def replace_in_paragraph(paragraph):
         runs = paragraph.runs
         if not runs:
             return
 
-        # Reconstruction des textes de runs
+        # Construire la liste de textes de runs pour déterminer les positions
         text_runs = [run.text for run in runs]
         full_text = ''.join(text_runs)
 
@@ -61,14 +62,14 @@ def replace_placeholders_in_doc(template, mapping, row):
             value = str(row[col])
             regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
 
-            # Remplacer toutes les occurrences de la balise
+            # Tant qu’il y a une occurrence dans full_text
             while True:
                 match = regex.search(full_text)
                 if not match:
                     break
                 start, end = match.start(), match.end()
 
-                # Identifier les runs concernés
+                # Identifier les runs concernés par cette occurrence
                 run_positions = []
                 pos = 0
                 for i, txt in enumerate(text_runs):
@@ -79,19 +80,15 @@ def replace_placeholders_in_doc(template, mapping, row):
                 if not run_positions:
                     break
 
-                first_run = runs[run_positions[0]]
-                # Vider le texte des runs concernés
+                # On vide tous les runs concernés
                 for idx in run_positions:
                     runs[idx].text = ""
-                # Insérer la valeur dans un nouveau run
-                new_run = paragraph.add_run(value)
-                new_run.bold      = first_run.bold
-                new_run.italic    = first_run.italic
-                new_run.underline = first_run.underline
-                new_run.font.name = first_run.font.name
-                new_run.font.size = first_run.font.size
 
-                # Recalculer text_runs et full_text pour les prochaines itérations
+                # On écrit la valeur dans le premier run impacté
+                first_idx = run_positions[0]
+                runs[first_idx].text = value
+
+                # Recalculer text_runs et full_text pour gérer plusieurs occurrences
                 text_runs = [r.text for r in runs]
                 full_text = ''.join(text_runs)
 
@@ -109,139 +106,120 @@ def replace_placeholders_in_doc(template, mapping, row):
         process(section.footer)
 
 def main():
-    # Configuration de la page pour Bêta V3.5
+    # Page config V3.5
     st.set_page_config(
         page_title="🛠️ Bêta Juridique – Générateur V3.5",
         page_icon="⚖️"
     )
     st.title("🛠️ Bêta Juridique – Assistant de génération V3.5")
 
-    # Initialisation de l'état de mapping
     if "mapping_done" not in st.session_state:
         st.session_state["mapping_done"] = False
 
     st.markdown("""
-    Ce service vous permet de générer automatiquement des documents juridiques  
-    à partir d’un modèle Word (.docx) et d’un fichier Excel contenant les informations clients.
+    Génération automatisée de documents juridiques  
+    à partir d’un modèle Word (.docx) et d’un fichier Excel.
     """)
 
     with st.expander("🔐 Politique de confidentialité"):
         st.markdown("""
-        Les fichiers que vous chargez ne sont jamais stockés. Ils sont traités  
-        uniquement pendant votre session et supprimés ensuite automatiquement.  
-        ✅ Conforme au RGPD.
+        Vos fichiers ne sont jamais stockés,  
+        traités uniquement pendant la session.  
+        ✅ Conforme RGPD.
         """)
 
-    # Upload des fichiers
-    word_file  = st.file_uploader("📄 Télécharger votre modèle Word (.docx)", type="docx")
-    excel_file = st.file_uploader("📊 Importer votre tableau Excel (.xls/.xlsx)", type=["xls", "xlsx"])
+    word_file  = st.file_uploader("📄 Modèle Word (.docx)", type="docx")
+    excel_file = st.file_uploader("📊 Données Excel (.xls/.xlsx)", type=["xls", "xlsx"])
 
     mapping = {}
     tags = set()
     df = None
     jinja_found = False
 
-    # Extraction des balises
     if word_file:
         tags, jinja_found = extract_tags_from_docx(word_file)
     if jinja_found:
-        st.warning("⚠️ Le modèle contient des blocs conditionnels Jinja non traités.")
+        st.warning("⚠️ Blocs conditionnels Jinja non traités.")
 
-    # Aperçu des données importées
     if word_file or excel_file:
         with st.expander("📂 Aperçu des données importées"):
             if tags:
-                st.markdown("### Champs personnalisables détectés")
+                st.markdown("### Balises détectées")
                 for tag in sorted(tags):
                     st.write(f"- **{{{{{tag}}}}}**")
             elif word_file:
-                st.info("Aucune balise {{…}} détectée.")
+                st.info("Aucune balise détectée.")
             if excel_file:
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.strip()
-                st.markdown("### Colonnes disponibles")
+                st.markdown("### Colonnes Excel")
                 st.write(list(df.columns))
 
-    # Mapping balises → colonnes (strict par défaut, ou tolérant si activé)
     if word_file and excel_file:
         if df is None:
             df = pd.read_excel(excel_file)
             df.columns = df.columns.str.strip()
 
-        st.markdown("### Associer chaque champ du modèle aux données Excel")
-
-        # Toggle strict vs tolérant
-        tol = st.checkbox(
-            "Activer le mapping tolérant (ignorer la casse et les underscores)",
-            value=False
-        )
+        st.markdown("### Mapping balises → colonnes")
+        tol = st.checkbox("Mode tolérant (casse/underscores ignorés)", value=False)
 
         cols = ["(laisser inchangée)"] + list(df.columns)
         normalized = [c.lower().replace("_", "") for c in df.columns]
 
         for tag in sorted(tags):
             if tol:
-                tag_norm = tag.lower().replace("_", "")
-                default = normalized.index(tag_norm) + 1 if tag_norm in normalized else 0
+                tn = tag.lower().replace("_", "")
+                default = normalized.index(tn) + 1 if tn in normalized else 0
             else:
                 default = cols.index(tag) if tag in df.columns else 0
 
-            mapping[tag] = st.selectbox(f"Champ modèle : {{{{{tag}}}}}", cols, index=default)
+            mapping[tag] = st.selectbox(f"Champ `{tag}`", cols, index=default)
 
         if st.button("🔗 Enregistrer les correspondances"):
             st.session_state["mapping_done"] = True
-            st.success("🔄 Correspondances enregistrées avec succès.")
+            st.success("Correspondances enregistrées.")
 
-    # Génération et téléchargement
     if word_file and excel_file and st.session_state["mapping_done"]:
-        if st.button("📂 Générer les documents personnalisés"):
-            # Lecture et nettoyage
+        if st.button("📂 Générer les documents"):
             df = pd.read_excel(excel_file)
             df.columns = df.columns.str.strip()
 
-            # Préparation du nom du modèle
             raw        = os.path.splitext(word_file.name)[0]
             clean_name = raw.replace("_", " ")
             parts      = clean_name.split(" ", 1)
-            prefix     = parts[0]
-            rest       = parts[1] if len(parts) > 1 else ""
+            prefix     = parts[0]; rest = parts[1] if len(parts)>1 else ""
 
-            # Extraction major/minor
             try:
-                major, minor = prefix.split(".")
-                minor = int(minor)
-            except ValueError:
+                major, minor = prefix.split("."); minor = int(minor)
+            except:
                 major, minor = prefix, 0
 
-            # Construction du ZIP
             zip_io = io.BytesIO()
             with zipfile.ZipFile(zip_io, "w") as zf:
+                # Réindexer pour avoir 0,1,2...
+                df = df.reset_index(drop=True)
                 for idx, row in df.iterrows():
                     template = Document(word_file)
                     replace_placeholders_in_doc(template, mapping, row)
-                    seq      = minor + idx + 1
-                    new_pref = f"{major}.{seq}"
-                    key      = next((col for tag, col in mapping.items() 
-                                     if tag.lower() == "name" and col in row.index), None)
-                    person   = str(row[key]).strip() if key else "inconnu"
-                    fname    = f"{new_pref} {rest} - {person}.docx"
-                    out = io.BytesIO()
+                    seq    = minor + idx + 1
+                    newpref= f"{major}.{seq}"
+                    key    = next((c for t,c in mapping.items() if t.lower()=="name" and c in row.index), None)
+                    person = str(row[key]).strip() if key else "inconnu"
+                    fname  = f"{newpref} {rest} - {person}.docx"
+                    out    = io.BytesIO()
                     template.save(out)
                     zf.writestr(fname, out.getvalue())
-            zip_io.seek(0)
 
-            # Stockage en session
+            zip_io.seek(0)
             st.session_state["zip_data"]     = zip_io.getvalue()
             st.session_state["zip_filename"] = f"{clean_name}.zip"
 
-        # Bouton de téléchargement visible après génération
         if st.session_state.get("zip_data"):
             st.download_button(
-                "📥 Télécharger l’ensemble des documents (ZIP)",
+                "📥 Télécharger ZIP",
                 data=st.session_state["zip_data"],
                 file_name=st.session_state["zip_filename"],
-                mime="application/zip",
-                key="download-zip"
+                mime="application/zip"
             )
 
 if __name__ == "__main__":
