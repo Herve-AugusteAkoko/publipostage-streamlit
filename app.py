@@ -42,32 +42,65 @@ def extract_tags_from_docx(docx_file) -> set:
     return tags, jinja_found
 
 def replace_placeholders_in_doc(template, mapping, row):
+    """
+    Remplace les placeholders {{Tag}} même s’ils sont répartis sur plusieurs runs,
+    en conservant le style du premier run de chaque occurrence.
+    """
     def replace_in_paragraph(paragraph):
         runs = paragraph.runs
-        full_text = ''.join(run.text for run in runs)
-        clean_text = normalize(full_text)
+        if not runs:
+            return
 
-        # Substitution in situ de chaque balise
+        # Reconstruction des textes de runs
+        text_runs = [run.text for run in runs]
+        full_text = ''.join(text_runs)
+
         for tag, col in mapping.items():
             if not col or col == "(laisser inchangée)" or col not in row.index:
                 continue
             value = str(row[col])
             regex = re.compile(r"\{\{\s*" + re.escape(tag) + r"\s*\}\}")
-            full_text = regex.sub(value, full_text)
 
-        # Réécriture du paragraphe avec le style du premier run
-        if runs:
-            first_run = runs[0]
-            first_run.text = full_text
-            for run in runs[1:]:
-                run.text = ""
+            # Remplacer toutes les occurrences de la balise
+            while True:
+                match = regex.search(full_text)
+                if not match:
+                    break
+                start, end = match.start(), match.end()
+
+                # Identifier les runs concernés
+                run_positions = []
+                pos = 0
+                for i, txt in enumerate(text_runs):
+                    if pos + len(txt) > start and pos < end:
+                        run_positions.append(i)
+                    pos += len(txt)
+
+                if not run_positions:
+                    break
+
+                first_run = runs[run_positions[0]]
+                # Vider le texte des runs concernés
+                for idx in run_positions:
+                    runs[idx].text = ""
+                # Insérer la valeur dans un nouveau run
+                new_run = paragraph.add_run(value)
+                new_run.bold      = first_run.bold
+                new_run.italic    = first_run.italic
+                new_run.underline = first_run.underline
+                new_run.font.name = first_run.font.name
+                new_run.font.size = first_run.font.size
+
+                # Recalculer text_runs et full_text pour les prochaines itérations
+                text_runs = [r.text for r in runs]
+                full_text = ''.join(text_runs)
 
     def process(container):
         for p in container.paragraphs:
             replace_in_paragraph(p)
         for table in container.tables:
-            for row in table.rows:
-                for cell in row.cells:
+            for r in table.rows:
+                for cell in r.cells:
                     process(cell)
 
     process(template)
@@ -148,14 +181,9 @@ def main():
 
         for tag in sorted(tags):
             if tol:
-                # mode tolérant
                 tag_norm = tag.lower().replace("_", "")
-                if tag_norm in normalized:
-                    default = normalized.index(tag_norm) + 1
-                else:
-                    default = 0
+                default = normalized.index(tag_norm) + 1 if tag_norm in normalized else 0
             else:
-                # mode strict
                 default = cols.index(tag) if tag in df.columns else 0
 
             mapping[tag] = st.selectbox(f"Champ modèle : {{{{{tag}}}}}", cols, index=default)
@@ -194,7 +222,7 @@ def main():
                     seq      = minor + idx + 1
                     new_pref = f"{major}.{seq}"
                     key      = next((col for tag, col in mapping.items() 
-                                     if tag.lower()=="name" and col in row.index), None)
+                                     if tag.lower() == "name" and col in row.index), None)
                     person   = str(row[key]).strip() if key else "inconnu"
                     fname    = f"{new_pref} {rest} - {person}.docx"
                     out = io.BytesIO()
